@@ -887,8 +887,6 @@ function openSettings(){
   document.getElementById('leaveEndInput').value = settings.leaveEnd || '';
   document.getElementById('leaveTotalInput').value = settings.leaveTotal===null||settings.leaveTotal===undefined ? '' : settings.leaveTotal;
   if(!hasClaudeStorage){
-    document.getElementById('syncUrlInput').value = syncConfig.url || '';
-    document.getElementById('syncAnonInput').value = syncConfig.anonKey || '';
     document.getElementById('syncCodeInput').value = syncConfig.syncKey || '';
   }
   renderHolidayList();
