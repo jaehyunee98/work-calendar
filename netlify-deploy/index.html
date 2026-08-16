@@ -1244,12 +1244,22 @@ function singleEventICS(title, ds, desc){
 }
 function downloadICSText(ics, filename){
   const dataUrl = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
-  const a = document.createElement('a');
-  a.href = dataUrl;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  if(isIOS){
+    // iOS Safari: no 'download' attribute, opened in a new tab so it triggers
+    // the native "Add to Calendar" preview instead of silently saving a file.
+    const win = window.open(dataUrl, '_blank');
+    if(!win){
+      window.location.href = dataUrl;
+    }
+  } else {
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
 }
 
 (async function init(){
