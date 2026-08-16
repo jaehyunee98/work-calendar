@@ -842,13 +842,12 @@ document.addEventListener('click', function(e){
     const dateVal = card.querySelector('.shipDateInput').value;
     const noteVal = card.querySelector('.shipNoteInput').value.trim();
     const badge = card.querySelector('.sbadge').textContent;
-    downloadICSText(singleEventICS('정기배송 ('+badge.split('·')[1].trim()+')', dateVal, noteVal), 'shipping.ics');
+    addSingleEventToCalendar('정기배송 ('+badge.split('·')[1].trim()+')', dateVal, noteVal);
   }
   if(e.target.id === 'payIcsBtn'){
-    const card = e.target.closest('.paycard');
     const dateVal = document.getElementById('payDateInput').value;
     const noteVal = document.getElementById('payNoteInput').value.trim();
-    downloadICSText(singleEventICS('월급일', dateVal, noteVal), 'payday.ics');
+    addSingleEventToCalendar('월급일', dateVal, noteVal);
   }
 });
 
@@ -868,8 +867,19 @@ document.getElementById('leaveIcsBtn').addEventListener('click', ()=>{
   const val = activeSeg ? (activeSeg.dataset.val||'') : '';
   if(!val) return;
   const memo = document.getElementById('memoInput').value.trim();
-  downloadICSText(singleEventICS(val==='half'?'반차':'연차', openDate, memo), 'leave.ics');
+  addSingleEventToCalendar(val==='half'?'반차':'연차', openDate, memo);
 });
+
+function addSingleEventToCalendar(title, ds, desc){
+  if(hasClaudeStorage){
+    // Claude 아티팩트 미리보기에는 이 서버 함수가 없으니, 있는 그대로 새 탭에 열어 확인용으로만 보여줘요.
+    const ics = singleEventICS(title, ds, desc);
+    window.open('data:text/calendar;charset=utf-8,' + encodeURIComponent(ics), '_blank');
+    return;
+  }
+  const params = new URLSearchParams({ title: title, date: ds.replace(/-/g,''), desc: desc||'' });
+  window.location.href = '/.netlify/functions/ics?' + params.toString();
+}
 
 document.getElementById('dayClose').addEventListener('click', closeDay);
 document.getElementById('dayCancel').addEventListener('click', closeDay);
@@ -1241,25 +1251,6 @@ function singleEventICS(title, ds, desc){
   if(desc) lines.push('DESCRIPTION:'+icsEscape(desc));
   lines.push('END:VEVENT','END:VCALENDAR');
   return lines.join('\r\n');
-}
-function downloadICSText(ics, filename){
-  const dataUrl = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  if(isIOS){
-    // iOS Safari: no 'download' attribute, opened in a new tab so it triggers
-    // the native "Add to Calendar" preview instead of silently saving a file.
-    const win = window.open(dataUrl, '_blank');
-    if(!win){
-      window.location.href = dataUrl;
-    }
-  } else {
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }
 }
 
 (async function init(){
