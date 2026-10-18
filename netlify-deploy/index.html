@@ -1165,6 +1165,47 @@ async function pushRemote(blob){
   if(!res.ok) throw new Error('push failed: '+res.status);
 }
 
+/* ---------- 동기화 안전장치: 빈 데이터가 기존 데이터를 덮어쓰지 않도록 ---------- */
+function blobHasContent(b){
+  if(!b) return false;
+  const s = b.settings || {};
+  const hasTotal = s.leaveTotal!==null && s.leaveTotal!==undefined && s.leaveTotal!=='';
+  return !!(s.leaveStart || s.leaveEnd || hasTotal ||
+    (s.extraHolidays && s.extraHolidays.length) || (s.removedHolidays && s.removedHolidays.length) ||
+    Object.keys(b.events||{}).length || Object.keys(b.shipOverrides||{}).length || Object.keys(b.payOverrides||{}).length);
+}
+function pickBlob(local, remote){
+  const lc = blobHasContent(local), rc = blobHasContent(remote);
+  if(!rc) return { blob: local, source: 'local' };
+  if(!lc) return { blob: remote, source: 'remote' };
+  const lt = (local && local.updatedAt) || 0, rt = (remote && remote.updatedAt) || 0;
+  return rt > lt ? { blob: remote, source: 'remote' } : { blob: local, source: 'local' };
+}
+function readLocalBlob(){
+  try{ const raw = localStorage.getItem('workcal_local'); return raw ? JSON.parse(raw) : null; }
+  catch(err){ return null; }
+}
+async function reconcileWithRemote(){
+  const local = readLocalBlob();
+  const remote = await fetchRemote();
+  const pick = pickBlob(local, remote);
+  if(!pick.blob) return '새 동기화 코드예요. 저장하면 이 코드로 백업돼요.';
+  if(pick.source === 'remote'){
+    if(blobHasContent(local)) localStorage.setItem('workcal_backup', JSON.stringify(local));
+    applyLoadedBlob(pick.blob);
+    localStorage.setItem('workcal_local', JSON.stringify(pick.blob));
+    return '다른 기기의 최신 데이터를 불러왔어요. 동기화됨.';
+  }
+  applyLoadedBlob(pick.blob);
+  if(blobHasContent(pick.blob)){
+    const stamped = Object.assign({}, pick.blob, { updatedAt: pick.blob.updatedAt || Date.now() });
+    localStorage.setItem('workcal_local', JSON.stringify(stamped));
+    if(!remote || remote.updatedAt !== stamped.updatedAt) await pushRemote(stamped);
+    return '이 기기의 데이터로 동기화했어요.';
+  }
+  return '이 코드로 저장된 데이터가 아직 없어요 (새로 시작)';
+}
+
 async function saveAllState(){
   if(hasClaudeStorage){
     await persistSettings();
@@ -1173,9 +1214,9 @@ async function saveAllState(){
     await persistPay();
     return;
   }
-  const blob = { settings, events, shipOverrides, payOverrides };
+  const blob = { settings, events, shipOverrides, payOverrides, updatedAt: Date.now() };
   localStorage.setItem('workcal_local', JSON.stringify(blob));
-  if(syncConfig.syncKey){
+  if(syncConfig.syncKey && blobHasContent(blob)){
     try{
       await pushRemote(blob);
       setSyncStatusText('마지막 동기화: '+new Date().toLocaleTimeString());
@@ -1191,24 +1232,17 @@ async function loadAllState(){
     await loadFromClaude();
     return;
   }
-  try{
-    const raw = localStorage.getItem('workcal_local');
-    if(raw) applyLoadedBlob(JSON.parse(raw));
-  }catch(err){ /* none yet */ }
   if(syncConfig.syncKey){
     try{
-      const data = await fetchRemote();
-      if(data){
-        applyLoadedBlob(data);
-        setSyncStatusText('동기화됨');
-      } else {
-        setSyncStatusText('이 코드로 저장된 데이터가 아직 없어요 (새로 시작)');
-      }
+      setSyncStatusText(await reconcileWithRemote());
+      return;
     }catch(err){
       console.error('동기화 불러오기 실패', err);
       setSyncStatusText('동기화 실패 - 이 기기의 데이터를 표시해요');
     }
   }
+  const local = readLocalBlob();
+  if(local) applyLoadedBlob(local);
 }
 
 document.getElementById('syncConnectBtn').addEventListener('click', async ()=>{
@@ -1221,20 +1255,13 @@ document.getElementById('syncConnectBtn').addEventListener('click', async ()=>{
   localStorage.setItem('workcal_syncconfig', JSON.stringify(syncConfig));
   setSyncStatusText('연결하는 중…');
   try{
-    const data = await fetchRemote();
-    if(data){
-      applyLoadedBlob(data);
-      setSyncStatusText('기존 데이터를 불러왔어요. 동기화됨.');
-    } else {
-      setSyncStatusText('새 동기화 코드예요. 저장하면 이 코드로 백업돼요.');
-    }
+    setSyncStatusText(await reconcileWithRemote());
     renderAll();
     renderHolidayList();
     renderCustomHolidayList();
     document.getElementById('leaveStartInput').value = settings.leaveStart || '';
     document.getElementById('leaveEndInput').value = settings.leaveEnd || '';
     document.getElementById('leaveTotalInput').value = settings.leaveTotal===null||settings.leaveTotal===undefined ? '' : settings.leaveTotal;
-    await saveAllState();
   }catch(err){
     console.error(err);
     setSyncStatusText('연결 실패 - 배포가 완료됐는지, 함수가 켜져 있는지 확인해주세요.');
